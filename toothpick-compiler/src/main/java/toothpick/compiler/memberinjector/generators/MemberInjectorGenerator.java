@@ -6,11 +6,11 @@ import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.ParameterizedTypeName;
-import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import java.util.List;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Types;
 import toothpick.MemberInjector;
 import toothpick.Scope;
 import toothpick.compiler.common.generators.CodeGenerator;
@@ -33,7 +33,9 @@ public class MemberInjectorGenerator extends CodeGenerator {
   private List<MethodInjectionTarget> methodInjectionTargetList;
 
   public MemberInjectorGenerator(TypeElement targetClass, TypeElement superClassThatNeedsInjection,
-      List<FieldInjectionTarget> fieldInjectionTargetList, List<MethodInjectionTarget> methodInjectionTargetList) {
+      List<FieldInjectionTarget> fieldInjectionTargetList, List<MethodInjectionTarget> methodInjectionTargetList,
+      Types types) {
+    super(types);
     this.targetClass = targetClass;
     this.superClassThatNeedsInjection = superClassThatNeedsInjection;
     this.fieldInjectionTargetList = fieldInjectionTargetList;
@@ -61,13 +63,10 @@ public class MemberInjectorGenerator extends CodeGenerator {
 
   private void emitSuperMemberInjectorFieldIfNeeded(TypeSpec.Builder scopeMemberTypeSpec) {
     if (superClassThatNeedsInjection != null) {
-      ClassName superTypeThatNeedsInjection = ClassName.get(superClassThatNeedsInjection);
-      ParameterizedTypeName memberInjectorSuperParameterizedTypeName =
-          ParameterizedTypeName.get(ClassName.get(MemberInjector.class), superTypeThatNeedsInjection);
       FieldSpec.Builder superMemberInjectorField =
-          FieldSpec.builder(memberInjectorSuperParameterizedTypeName, "superMemberInjector", Modifier.PRIVATE)
+          FieldSpec.builder(MemberInjector.class, "superMemberInjector", Modifier.PRIVATE)
               //TODO use proper typing here
-              .initializer("new $L$$$$MemberInjector()", superTypeThatNeedsInjection);
+              .initializer("new $L$$$$MemberInjector()", getGeneratedFQNClassName(superClassThatNeedsInjection));
       scopeMemberTypeSpec.addField(superMemberInjectorField.build());
     }
   }
@@ -109,8 +108,7 @@ public class MemberInjectorGenerator extends CodeGenerator {
       for (ParamInjectionTarget paramInjectionTarget : methodInjectionTarget.parameters) {
         CodeBlock invokeScopeGetMethodWithNameCodeBlock = getInvokeScopeGetMethodWithNameCodeBlock(paramInjectionTarget);
         String paramName = "param" + counter++;
-        TypeName paramType = TypeName.get(paramInjectionTarget.memberClass.asType());
-        injectMethodBuilder.addCode("$T $L = scope.", paramType, paramName);
+        injectMethodBuilder.addCode("$T $L = scope.", getParamType(paramInjectionTarget), paramName);
         injectMethodBuilder.addCode(invokeScopeGetMethodWithNameCodeBlock);
         injectMethodBuilder.addCode(";");
         injectMethodBuilder.addCode(LINE_SEPARATOR);

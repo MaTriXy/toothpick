@@ -39,7 +39,8 @@ import toothpick.registries.memberinjector.AbstractMemberInjectorRegistry;
 @SupportedOptions({
     ToothpickProcessor.PARAMETER_REGISTRY_PACKAGE_NAME, //
     ToothpickProcessor.PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES, //
-    ToothpickProcessor.PARAMETER_EXCLUDES
+    ToothpickProcessor.PARAMETER_EXCLUDES, //
+    ToothpickProcessor.PARAMETER_CRASH_WHEN_INJECTED_METHOD_IS_NOT_PACKAGE
 }) //
 public class MemberInjectorProcessor extends ToothpickProcessor {
 
@@ -49,12 +50,15 @@ public class MemberInjectorProcessor extends ToothpickProcessor {
 
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-    readProcessorOptions();
-    findAndParseTargets(roundEnv);
 
-    if (!roundEnv.processingOver()) {
+    if (hasAlreadyRun()) {
       return false;
     }
+
+    wasRun();
+    readCommonProcessorOptions();
+    readOptionCrashWhenMethodIsNotPackageProtected();
+    findAndParseTargets(roundEnv);
 
     // Generate member scopes
     Set<TypeElement> elementWithInjectionSet = new HashSet<>();
@@ -67,7 +71,11 @@ public class MemberInjectorProcessor extends ToothpickProcessor {
       List<MethodInjectionTarget> methodInjectionTargetList = mapTypeElementToMethodInjectorTargetList.get(typeElement);
       TypeElement superClassThatNeedsInjection = mapTypeElementToSuperTypeElementThatNeedsInjection.get(typeElement);
       MemberInjectorGenerator memberInjectorGenerator =
-          new MemberInjectorGenerator(typeElement, superClassThatNeedsInjection, fieldInjectionTargetList, methodInjectionTargetList);
+          new MemberInjectorGenerator(typeElement, //
+              superClassThatNeedsInjection, //
+              fieldInjectionTargetList, //
+              methodInjectionTargetList, //
+              typeUtils);
       String fileDescription = String.format("MemberInjector for type %s", typeElement);
       boolean success = writeToFile(memberInjectorGenerator, fileDescription, typeElement);
       if (success) {
@@ -80,14 +88,21 @@ public class MemberInjectorProcessor extends ToothpickProcessor {
       RegistryInjectionTarget registryInjectionTarget =
           new RegistryInjectionTarget(MemberInjector.class, AbstractMemberInjectorRegistry.class, toothpickRegistryPackageName,
               toothpickRegistryChildrenPackageNameList, elementsWithMemberInjectorCreated);
-      RegistryGenerator registryGenerator = new RegistryGenerator(registryInjectionTarget);
 
       String fileDescription = "MemberInjector registry";
       Element[] allTypes = elementsWithMemberInjectorCreated.toArray(new Element[elementsWithMemberInjectorCreated.size()]);
-      writeToFile(registryGenerator, fileDescription, allTypes);
+      writeToFile(new RegistryGenerator(registryInjectionTarget, typeUtils), fileDescription, allTypes);
     }
 
     return false;
+  }
+
+  private void readOptionCrashWhenMethodIsNotPackageProtected() {
+    Map<String, String> options = processingEnv.getOptions();
+    if (toothpickCrashWhenMethodIsNotPackageVisible == null) {
+      toothpickCrashWhenMethodIsNotPackageVisible =
+          Boolean.parseBoolean(options.get(PARAMETER_CRASH_WHEN_INJECTED_METHOD_IS_NOT_PACKAGE));
+    }
   }
 
   private void findAndParseTargets(RoundEnvironment roundEnv) {
@@ -175,5 +190,15 @@ public class MemberInjectorProcessor extends ToothpickProcessor {
   //used for testing only
   void setToothpickRegistryChildrenPackageNameList(List<String> toothpickRegistryChildrenPackageNameList) {
     this.toothpickRegistryChildrenPackageNameList = toothpickRegistryChildrenPackageNameList;
+  }
+
+  //used for testing only
+  void setToothpickExcludeFilters(String toothpickExcludeFilters) {
+    this.toothpickExcludeFilters = toothpickExcludeFilters;
+  }
+
+  //used for testing only
+  void setCrashOrWarnWhenMethodIsNotPackageVisible(boolean crashOrWarnWhenMethodIsNotPackageVisible) {
+    this.toothpickCrashWhenMethodIsNotPackageVisible = crashOrWarnWhenMethodIsNotPackageVisible;
   }
 }

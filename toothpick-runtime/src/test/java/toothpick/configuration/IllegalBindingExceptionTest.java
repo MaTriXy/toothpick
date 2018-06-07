@@ -1,4 +1,4 @@
-package toothpick;
+package toothpick.configuration;
 
 import org.junit.Test;
 

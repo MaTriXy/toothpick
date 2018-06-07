@@ -7,7 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import toothpick.Configuration;
+import toothpick.configuration.Configuration;
 import toothpick.Factory;
 import toothpick.Scope;
 import toothpick.Toothpick;
@@ -32,7 +32,7 @@ public class BindingsMultiThreadTest {
 
   @Before
   public void setUp() throws Exception {
-    Toothpick.setConfiguration(Configuration.reflectionFree());
+    Toothpick.setConfiguration(Configuration.forProduction().disableReflection());
     Toothpick.openScope(ROOT_SCOPE);
     scopeNames.clear();
   }
@@ -150,7 +150,7 @@ public class BindingsMultiThreadTest {
     private final Class<T> clazz;
     private boolean scoped;
 
-    public DynamicTestClassesFactory(Class<T> clazz, boolean scoped) {
+    DynamicTestClassesFactory(Class<T> clazz, boolean scoped) {
       this.clazz = clazz;
       this.scoped = scoped;
     }
@@ -175,7 +175,7 @@ public class BindingsMultiThreadTest {
     }
 
     @Override
-    public boolean hasScopeInstancesAnnotation() {
+    public boolean hasProvidesSingletonInScopeAnnotation() {
       return false;
     }
   }
@@ -183,7 +183,7 @@ public class BindingsMultiThreadTest {
   private static class DynamicTestClassesFactoryRegistry implements FactoryRegistry {
     private boolean scoped;
 
-    public DynamicTestClassesFactoryRegistry(boolean scoped) {
+    DynamicTestClassesFactoryRegistry(boolean scoped) {
       this.scoped = scoped;
     }
 

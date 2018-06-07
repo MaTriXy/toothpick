@@ -1,11 +1,14 @@
 package toothpick;
 
-import java.util.Collection;
-import javax.inject.Singleton;
 import org.junit.After;
 import org.junit.Test;
 import toothpick.data.CustomScope;
 import toothpick.data.NotAScope;
+
+import javax.inject.Singleton;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -192,16 +195,28 @@ public class ScopeNodeTest {
     assertThat(isBoundToScopeAnnotation, is(true));
   }
 
-  @Test(expected = IllegalArgumentException.class)
-  public void testBindScopeAnnotation_shouldFail_whenAskedForSingleton() {
+  @Test
+  public void testBindScopeAnnotation_shouldReturnTrue_whenRootScopeAskedForSingleton() {
     //GIVEN
     Scope parentScope = Toothpick.openScope("root");
 
     //WHEN
-    parentScope.isBoundToScopeAnnotation(Singleton.class);
+    boolean isBoundToSingleton = parentScope.isBoundToScopeAnnotation(Singleton.class);
 
     //THEN
-    fail("Should throw an exception");
+    assertThat(isBoundToSingleton, is(true));
+  }
+
+  @Test
+  public void testBindScopeAnnotation_shouldReturnFalse_whenNonRootScopeAskedForSingleton() {
+    //GIVEN
+    Scope childScope = Toothpick.openScopes("root", "child");
+
+    //WHEN
+    boolean isBoundToSingleton = childScope.isBoundToScopeAnnotation(Singleton.class);
+
+    //THEN
+    assertThat(isBoundToSingleton, is(false));
   }
 
   @Test
@@ -362,5 +377,78 @@ public class ScopeNodeTest {
     //THEN
     assertThat(equals, is(false));
     assertThat(hashScope, not(is(hashScope2)));
+  }
+
+  @Test
+  public void testGetParentScopeNames_shouldReturnParentNames_whenThereAreParents() {
+    //GIVEN
+    ScopeNode parentScope = new ScopeImpl("root");
+    ScopeNode childScope = new ScopeImpl("child");
+    parentScope.addChild(childScope);
+
+    //WHEN
+    final List<Object> parentScopesNames = childScope.getParentScopesNames();
+
+    //THEN
+    assertThat(parentScopesNames.size(), is(1));
+    assertThat(parentScopesNames.iterator().next(), is(parentScope.getName()));
+  }
+
+  @Test
+  public void testGetParentScopeNames_shouldReturnParentNamesInOrder_whenThereAreParents() {
+    //GIVEN
+    ScopeNode parentScope = new ScopeImpl("root");
+    ScopeNode childScope = new ScopeImpl("child");
+    ScopeNode grandChildScope = new ScopeImpl("grandChild");
+    parentScope.addChild(childScope);
+    childScope.addChild(grandChildScope);
+
+    //WHEN
+    final List<Object> grandParentScopesNames = grandChildScope.getParentScopesNames();
+
+    //THEN
+    assertThat(grandParentScopesNames.size(), is(2));
+    final Iterator<Object> iterator = grandParentScopesNames.iterator();
+    assertThat(iterator.next(), is(childScope.getName()));
+    assertThat(iterator.next(), is(parentScope.getName()));
+  }
+
+  @Test
+  public void testGetParentScopeNames_shouldReturnParentNames_whenThereAreNoParents() {
+    //GIVEN
+    ScopeNode parentScope = new ScopeImpl("root");
+
+    //WHEN
+    final List<Object> parentScopesNames = parentScope.getParentScopesNames();
+
+    //THEN
+    assertThat(parentScopesNames.size(), is(0));
+  }
+
+  @Test
+  public void testReset_shouldClearBoundAnnotations_andFlagTheScopeAsOpen() throws Exception {
+    //GIVEN
+    ScopeNode scope = new ScopeImpl("root");
+    scope.bindScopeAnnotation(CustomScope.class);
+    scope.close();
+
+    //WHEN
+    scope.reset();
+
+    //THEN
+    assertThat(scope.isBoundToScopeAnnotation(CustomScope.class), is(false));
+    assertThat(scope.isOpen, is(true));
+  }
+
+  @Test
+  public void testReset_shouldRebindScopeAnnotation() throws Exception {
+    //GIVEN
+    ScopeNode scope = new ScopeImpl(CustomScope.class);
+
+    //WHEN
+    scope.reset();
+
+    //THEN
+    assertThat(scope.isBoundToScopeAnnotation(CustomScope.class), is(true));
   }
 }

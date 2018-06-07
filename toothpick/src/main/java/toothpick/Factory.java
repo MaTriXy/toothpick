@@ -4,7 +4,7 @@ import javax.inject.Inject;
 
 /**
  * Creates instances of classes.
- * Factories are discovered via a {@link FactoryRegistry}.
+ * Factories are discovered via a {@code FactoryRegistry}.
  * Implementations are generated during annotation processing.
  * As soon as a class as an {@link javax.inject.Inject} annotated constructor,
  * a factory is created. All classes that need to be created via toothpick
@@ -12,7 +12,7 @@ import javax.inject.Inject;
  * a warning at runtime.
  * There can be one and only one annotated constructor.
  *
- * If a factory detects that a {@code T} has {@javax.inject.Inject} annotated fields,
+ * If a factory detects that a {@code T} has {@link javax.inject.Inject} annotated fields,
  * or one of its super classes, then it will inject the created instance of {@code T}.
  */
 public interface Factory<T> {
@@ -53,9 +53,9 @@ public interface Factory<T> {
   boolean hasScopeAnnotation();
 
   /**
-   * Signals that the class is anotated with {@link ScopeInstances}.
+   * Signals that the class is anotated with {@link ProvidesSingletonInScope}.
    *
    * @return true iff the class is annotated as a producer class whose instances will produce a singleton.
    */
-  boolean hasScopeInstancesAnnotation();
+  boolean hasProvidesSingletonInScopeAnnotation();
 }

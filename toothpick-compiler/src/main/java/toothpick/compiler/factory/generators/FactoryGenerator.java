@@ -9,6 +9,7 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.util.Types;
 import toothpick.Factory;
 import toothpick.MemberInjector;
 import toothpick.Scope;
@@ -28,7 +29,8 @@ public class FactoryGenerator extends CodeGenerator {
 
   private ConstructorInjectionTarget constructorInjectionTarget;
 
-  public FactoryGenerator(ConstructorInjectionTarget constructorInjectionTarget) {
+  public FactoryGenerator(ConstructorInjectionTarget constructorInjectionTarget, Types types) {
+    super(types);
     this.constructorInjectionTarget = constructorInjectionTarget;
   }
 
@@ -79,7 +81,11 @@ public class FactoryGenerator extends CodeGenerator {
 
     //change the scope to target scope so that all dependencies are created in the target scope
     //and the potential injection take place in the target scope too
-    createInstanceBuilder.addStatement("scope = getTargetScope(scope)");
+    if (!constructorInjectionTarget.parameters.isEmpty()
+        || constructorInjectionTarget.superClassThatNeedsMemberInjection != null) {
+      // We only need it when the constructor contains parameters or dependencies
+      createInstanceBuilder.addStatement("scope = getTargetScope(scope)");
+    }
 
     StringBuilder localVarStatement = new StringBuilder("");
     String simpleClassName = getSimpleClassName(className);
@@ -92,25 +98,36 @@ public class FactoryGenerator extends CodeGenerator {
     int counter = 1;
     String prefix = "";
 
+    CodeBlock.Builder codeBlockBuilder = CodeBlock.builder();
+    if (constructorInjectionTarget.throwsThrowable) {
+      codeBlockBuilder.beginControlFlow("try");
+    }
+
     for (ParamInjectionTarget paramInjectionTarget : constructorInjectionTarget.parameters) {
       CodeBlock invokeScopeGetMethodWithNameCodeBlock = getInvokeScopeGetMethodWithNameCodeBlock(paramInjectionTarget);
       String paramName = "param" + counter++;
-      TypeName paramType = TypeName.get(paramInjectionTarget.memberClass.asType());
-      createInstanceBuilder.addCode("$T $L = scope.", paramType, paramName);
-      createInstanceBuilder.addCode(invokeScopeGetMethodWithNameCodeBlock);
-      createInstanceBuilder.addCode(";");
-      createInstanceBuilder.addCode(LINE_SEPARATOR);
+      codeBlockBuilder.add("$T $L = scope.", getParamType(paramInjectionTarget), paramName);
+      codeBlockBuilder.add(invokeScopeGetMethodWithNameCodeBlock);
+      codeBlockBuilder.add(";");
+      codeBlockBuilder.add(LINE_SEPARATOR);
       localVarStatement.append(prefix);
       localVarStatement.append(paramName);
       prefix = ", ";
     }
 
     localVarStatement.append(")");
-    createInstanceBuilder.addStatement(localVarStatement.toString());
+    codeBlockBuilder.addStatement(localVarStatement.toString());
+
     if (constructorInjectionTarget.superClassThatNeedsMemberInjection != null) {
-      createInstanceBuilder.addStatement("memberInjector.inject($L, scope)", varName);
+      codeBlockBuilder.addStatement("memberInjector.inject($L, scope)", varName);
     }
-    createInstanceBuilder.addStatement("return $L", varName);
+    codeBlockBuilder.addStatement("return $L", varName);
+    if (constructorInjectionTarget.throwsThrowable) {
+      codeBlockBuilder.nextControlFlow("catch($L ex)", ClassName.get(Throwable.class));
+      codeBlockBuilder.addStatement("throw new $L(ex)", ClassName.get(RuntimeException.class));
+      codeBlockBuilder.endControlFlow();
+    }
+    createInstanceBuilder.addCode(codeBlockBuilder.build());
 
     builder.addMethod(createInstanceBuilder.build());
   }
@@ -138,7 +155,7 @@ public class FactoryGenerator extends CodeGenerator {
   }
 
   private void emitHasScopeInstancesAnnotation(TypeSpec.Builder builder) {
-    MethodSpec.Builder hasProducesSingletonBuilder = MethodSpec.methodBuilder("hasScopeInstancesAnnotation")
+    MethodSpec.Builder hasProducesSingletonBuilder = MethodSpec.methodBuilder("hasProvidesSingletonInScopeAnnotation")
         .addAnnotation(Override.class)
         .addModifiers(Modifier.PUBLIC)
         .returns(TypeName.BOOLEAN)

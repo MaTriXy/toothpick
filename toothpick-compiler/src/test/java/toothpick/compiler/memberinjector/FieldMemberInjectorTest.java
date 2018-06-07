@@ -373,6 +373,42 @@ public class FieldMemberInjectorTest {
   }
 
   @Test
+  public void testLazyFieldInjectionOfGenericTypeButNotDeclaringLazyOfGenericType() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "import toothpick.Lazy;", //
+        "public class TestFieldInjection {", //
+        "  @Inject Lazy<Foo> foo;", //
+        "  public TestFieldInjection() {}", //
+        "}", //
+        "class Foo<T> {}" //
+    ));
+
+    JavaFileObject expectedSource = JavaFileObjects.forSourceString("test/TestFieldInjection$$MemberInjector", Joiner.on('\n').join(//
+        "package test;", //
+        "", //
+        "import java.lang.Override;", //
+        "import toothpick.MemberInjector;", //
+        "import toothpick.Scope;", //
+        "", //
+        "public final class TestFieldInjection$$MemberInjector implements MemberInjector<TestFieldInjection> {", //
+        "  @Override", //
+        "  public void inject(TestFieldInjection target, Scope scope) {", //
+        "    target.foo = scope.getLazy(Foo.class);", //
+        "  }", //
+        "}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .compilesWithoutError()
+        .and()
+        .generatesSources(expectedSource);
+  }
+
+  @Test
   public void testFieldInjection_shouldProduceMemberInjector_whenClassHas2Fields() {
     JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
         "package test;", //
@@ -429,6 +465,149 @@ public class FieldMemberInjectorTest {
   }
 
   @Test
+  public void testFieldInjection_shouldFail_WhenContainingClassIsPrivate() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "public class TestFieldInjection {", //
+        "  private static class InnerClass {", //
+        "    @Inject Foo foo;", //
+        "    public InnerClass() {}", //
+        "  }", //
+        "}", //
+        "class Foo {}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("@Injected fields in class InnerClass. The class must be non private.");
+  }
+
+  @Test
+  public void testFieldInjection_shouldFail_WhenFieldIsInvalidLazy() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "import toothpick.Lazy;", //
+        "public class TestFieldInjection {", //
+        "  @Inject Lazy foo;", //
+        "  public TestFieldInjection() {}", //
+        "}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("Field test.TestFieldInjection#foo is not a valid toothpick.Lazy.");
+  }
+
+  @Test
+  public void testFieldInjection_shouldFail_WhenFieldIsInvalidProvider() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "import javax.inject.Provider;", //
+        "public class TestFieldInjection {", //
+        "  @Inject Provider foo;", //
+        "  public TestFieldInjection() {}", //
+        "}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("Field test.TestFieldInjection#foo is not a valid javax.inject.Provider.");
+  }
+
+  @Test
+  public void testFieldInjection_shouldFail_WhenFieldIsInvalidLazyGenerics() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "import toothpick.Lazy;", //
+        "public class TestFieldInjection {", //
+        "  @Inject Lazy<Foo<String>> foo;", //
+        "  public TestFieldInjection() {}", //
+        "}", //
+        "class Foo<T> {}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("Lazy/Provider foo is not a valid in TestFieldInjection. Lazy/Provider cannot be used on generic types.");
+  }
+
+  @Test
+  public void testFieldInjection_shouldFail_WhenFieldIsInvalidProviderGenerics() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "import javax.inject.Provider;", //
+        "public class TestFieldInjection {", //
+        "  @Inject Provider<Foo<String>> foo;", //
+        "  public TestFieldInjection() {}", //
+        "}", //
+        "class Foo<T> {}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("Lazy/Provider foo is not a valid in TestFieldInjection. Lazy/Provider cannot be used on generic types.");
+  }
+
+  @Test
+  public void testFieldInjection_shouldInjectAsAnInstanceOfSuperClass_whenSuperClassIsStaticHasInjectedMembers() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestMemberInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "class TestMemberInjection {", //
+        "  public static class InnerSuperClass {", //
+        "    @Inject Foo foo;", //
+        "    public InnerSuperClass() {}", //
+        "  }", //
+        "  public static class InnerClass extends InnerSuperClass {", //
+        "    @Inject Foo foo;", //
+        "    public InnerClass() {}", //
+        "  }", //
+        "}", //
+        "class Foo {}" //
+    ));
+
+    JavaFileObject expectedSource = JavaFileObjects.forSourceString("test/TestMemberInjection$InnerClass$$MemberInjector", Joiner.on('\n').join(//
+        "package test;", //
+        "", //
+        "import java.lang.Override;", //
+        "import toothpick.MemberInjector;", //
+        "import toothpick.Scope;", //
+        "", //
+        "public final class TestMemberInjection$InnerClass$$MemberInjector implements MemberInjector<TestMemberInjection.InnerClass> {", //
+        "  private MemberInjector superMemberInjector " + "= new test.TestMemberInjection$InnerSuperClass$$MemberInjector();",
+        //
+        "  @Override", //
+        "  public void inject(TestMemberInjection.InnerClass target, Scope scope) {", //
+        "    superMemberInjector.inject(target, scope);", //
+        "    target.foo = scope.getInstance(Foo.class);", //
+        "  }", //
+        "}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .compilesWithoutError()
+        .and()
+        .generatesSources(expectedSource);
+  }
+
+  @Test
   public void testMemberInjection_shouldInjectAsAnInstanceOfSuperClass_whenSuperClassHasInjectedMembers() {
     JavaFileObject source = JavaFileObjects.forSourceString("test.TestMemberInjection", Joiner.on('\n').join(//
         "package test;", //
@@ -450,7 +629,7 @@ public class FieldMemberInjectorTest {
         "import toothpick.Scope;", //
         "", //
         "public final class TestMemberInjection$$MemberInjector implements MemberInjector<TestMemberInjection> {", //
-        "  private MemberInjector<TestMemberInjectionParent> superMemberInjector " + "= new test.TestMemberInjectionParent$$MemberInjector();",
+        "  private MemberInjector superMemberInjector " + "= new test.TestMemberInjectionParent$$MemberInjector();",
         //
         "  @Override", //
         "  public void inject(TestMemberInjection target, Scope scope) {", //
@@ -466,5 +645,23 @@ public class FieldMemberInjectorTest {
         .compilesWithoutError()
         .and()
         .generatesSources(expectedSource);
+  }
+
+  @Test
+  public void testFieldInjection_shouldFail_WhenFieldIsPrimitive() {
+    JavaFileObject source = JavaFileObjects.forSourceString("test.TestFieldInjection", Joiner.on('\n').join(//
+        "package test;", //
+        "import javax.inject.Inject;", //
+        "public class TestFieldInjection {", //
+        "  @Inject int foo;", //
+        "  public TestFieldInjection() {}", //
+        "}" //
+    ));
+
+    assert_().about(javaSource())
+        .that(source)
+        .processedWith(memberInjectorProcessors())
+        .failsToCompile()
+        .withErrorContaining("Field test.TestFieldInjection#foo is of type int which is not supported by Toothpick.");
   }
 }

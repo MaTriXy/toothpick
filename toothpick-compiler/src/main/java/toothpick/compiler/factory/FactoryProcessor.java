@@ -1,16 +1,17 @@
 package toothpick.compiler.factory;
 
+import java.lang.annotation.Annotation;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.processing.RoundEnvironment;
-import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.annotation.processing.SupportedOptions;
 import javax.inject.Inject;
 import javax.inject.Scope;
-import javax.inject.Singleton;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ExecutableElement;
@@ -19,7 +20,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.util.ElementFilter;
 import toothpick.Factory;
-import toothpick.ScopeInstances;
+import toothpick.ProvidesSingletonInScope;
 import toothpick.compiler.common.ToothpickProcessor;
 import toothpick.compiler.factory.generators.FactoryGenerator;
 import toothpick.compiler.factory.targets.ConstructorInjectionTarget;
@@ -29,7 +30,6 @@ import toothpick.registries.factory.AbstractFactoryRegistry;
 
 import static java.lang.String.format;
 import static javax.lang.model.element.Modifier.PRIVATE;
-import static javax.lang.model.element.Modifier.PUBLIC;
 
 /**
  * This processor's role is to create {@link Factory}.
@@ -43,7 +43,7 @@ import static javax.lang.model.element.Modifier.PUBLIC;
  * <ul>
  * <li> When a class {@code Foo} is annotated with {@link javax.inject.Singleton} : <br/>
  * --> it will use the annotated constructor or the default constructor if possible. Otherwise an error is raised.
- * <li> When a class {@code Foo} is annotated with {@link ScopeInstances} : <br/>
+ * <li> When a class {@code Foo} is annotated with {@link ProvidesSingletonInScope} : <br/>
  * --> it will use the annotated constructor or the default constructor if possible. Otherwise an error is raised.
  * <li> When a class {@code Foo} has an {@link javax.inject.Inject} annotated field {@code @Inject B b} : <br/>
  * --> it will use the annotated constructor or the default constructor if possible. Otherwise an error is raised.
@@ -53,36 +53,48 @@ import static javax.lang.model.element.Modifier.PUBLIC;
  * Note that if a class is abstract, the relax mechanism doesn't generate a factory and raises no error.
  */
 //http://stackoverflow.com/a/2067863/693752
-@SupportedAnnotationTypes({
-    ToothpickProcessor.INJECT_ANNOTATION_CLASS_NAME, //
-    ToothpickProcessor.SINGLETON_ANNOTATION_CLASS_NAME, //
-    ToothpickProcessor.PRODUCES_SINGLETON_ANNOTATION_CLASS_NAME
-})
 @SupportedOptions({
     ToothpickProcessor.PARAMETER_REGISTRY_PACKAGE_NAME, //
     ToothpickProcessor.PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES, //
-    ToothpickProcessor.PARAMETER_EXCLUDES
+    ToothpickProcessor.PARAMETER_EXCLUDES, //
+    ToothpickProcessor.PARAMETER_ANNOTATION_TYPES, //
+    ToothpickProcessor.PARAMETER_CRASH_WHEN_NO_FACTORY_CAN_BE_CREATED, //
 }) //
 public class FactoryProcessor extends ToothpickProcessor {
 
+  private static final String SUPPRESS_WARNING_ANNOTATION_INJECTABLE_VALUE = "injectable";
+
   private Map<TypeElement, ConstructorInjectionTarget> mapTypeElementToConstructorInjectionTarget = new LinkedHashMap<>();
+  private Boolean crashWhenNoFactoryCanBeCreated;
+
+  @Override
+  public Set<String> getSupportedAnnotationTypes() {
+    supportedAnnotationTypes.add(ToothpickProcessor.INJECT_ANNOTATION_CLASS_NAME);
+    supportedAnnotationTypes.add(ToothpickProcessor.SINGLETON_ANNOTATION_CLASS_NAME);
+    supportedAnnotationTypes.add(ToothpickProcessor.PRODUCES_SINGLETON_ANNOTATION_CLASS_NAME);
+    readOptionAnnotationTypes();
+    return supportedAnnotationTypes;
+  }
 
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
 
-    readProcessorOptions();
-    findAndParseTargets(roundEnv);
-
-    if (!roundEnv.processingOver()) {
+    if (hasAlreadyRun()) {
       return false;
     }
+
+    wasRun();
+    readCommonProcessorOptions();
+    readCrashWhenNoFactoryCanBeCreatedOption();
+    findAndParseTargets(roundEnv, annotations);
+
 
     // Generate Factories
     List<TypeElement> elementsWithFactoryCreated = new ArrayList<>();
 
     for (Map.Entry<TypeElement, ConstructorInjectionTarget> entry : mapTypeElementToConstructorInjectionTarget.entrySet()) {
       ConstructorInjectionTarget constructorInjectionTarget = entry.getValue();
-      FactoryGenerator factoryGenerator = new FactoryGenerator(constructorInjectionTarget);
+      FactoryGenerator factoryGenerator = new FactoryGenerator(constructorInjectionTarget, typeUtils);
       TypeElement typeElement = entry.getKey();
       String fileDescription = format("Factory for type %s", typeElement);
       boolean success = writeToFile(factoryGenerator, fileDescription, typeElement);
@@ -97,22 +109,37 @@ public class FactoryProcessor extends ToothpickProcessor {
       RegistryInjectionTarget registryInjectionTarget =
           new RegistryInjectionTarget(Factory.class, AbstractFactoryRegistry.class, toothpickRegistryPackageName,
               toothpickRegistryChildrenPackageNameList, elementsWithFactoryCreated);
-      RegistryGenerator registryGenerator = new RegistryGenerator(registryInjectionTarget);
 
       String fileDescription = "Factory registry";
       Element[] allTypes = elementsWithFactoryCreated.toArray(new Element[elementsWithFactoryCreated.size()]);
-      writeToFile(registryGenerator, fileDescription, allTypes);
+      writeToFile(new RegistryGenerator(registryInjectionTarget, typeUtils), fileDescription, allTypes);
     }
 
     return false;
   }
 
-  private void findAndParseTargets(RoundEnvironment roundEnv) {
+  private void readCrashWhenNoFactoryCanBeCreatedOption() {
+    Map<String, String> options = processingEnv.getOptions();
+    if (crashWhenNoFactoryCanBeCreated == null) {
+      crashWhenNoFactoryCanBeCreated = Boolean.parseBoolean(options.get(PARAMETER_CRASH_WHEN_NO_FACTORY_CAN_BE_CREATED));
+    }
+  }
+
+  private void findAndParseTargets(RoundEnvironment roundEnv, Set<? extends TypeElement> annotations) {
     createFactoriesForClassesWithInjectAnnotatedConstructors(roundEnv);
-    createFactoriesForClassesAnnotatedProvidesSingleton(roundEnv);
-    createFactoriesForClassesAnnotatedSingleton(roundEnv);
+    createFactoriesForClassesAnnotatedWith(roundEnv, ProvidesSingletonInScope.class);
     createFactoriesForClassesWithInjectAnnotatedFields(roundEnv);
     createFactoriesForClassesWithInjectAnnotatedMethods(roundEnv);
+    createFactoriesForClassesAnnotatedWithScopeAnnotations(roundEnv, annotations);
+  }
+
+  private void createFactoriesForClassesAnnotatedWithScopeAnnotations(RoundEnvironment roundEnv, Set<? extends TypeElement> annotations) {
+    for (TypeElement annotation : annotations) {
+      if (annotation.getAnnotation(Scope.class) != null) {
+        checkScopeAnnotationValidity(annotation);
+        createFactoriesForClassesAnnotatedWith(roundEnv, annotation);
+      }
+    }
   }
 
   private void createFactoriesForClassesWithInjectAnnotatedMethods(RoundEnvironment roundEnv) {
@@ -127,15 +154,15 @@ public class FactoryProcessor extends ToothpickProcessor {
     }
   }
 
-  private void createFactoriesForClassesAnnotatedProvidesSingleton(RoundEnvironment roundEnv) {
-    for (Element singletonAnnotatedElement : roundEnv.getElementsAnnotatedWith(ScopeInstances.class)) {
+  private void createFactoriesForClassesAnnotatedWith(RoundEnvironment roundEnv, Class<? extends Annotation> annotationClass) {
+    for (Element singletonAnnotatedElement : ElementFilter.typesIn(roundEnv.getElementsAnnotatedWith(annotationClass))) {
       TypeElement singletonAnnotatedTypeElement = (TypeElement) singletonAnnotatedElement;
       processClassContainingInjectAnnotatedMember(singletonAnnotatedTypeElement, mapTypeElementToConstructorInjectionTarget);
     }
   }
 
-  private void createFactoriesForClassesAnnotatedSingleton(RoundEnvironment roundEnv) {
-    for (Element singletonAnnotatedElement : roundEnv.getElementsAnnotatedWith(Singleton.class)) {
+  private void createFactoriesForClassesAnnotatedWith(RoundEnvironment roundEnv, TypeElement annotationType) {
+    for (Element singletonAnnotatedElement : ElementFilter.typesIn(roundEnv.getElementsAnnotatedWith(annotationType))) {
       TypeElement singletonAnnotatedTypeElement = (TypeElement) singletonAnnotatedElement;
       processClassContainingInjectAnnotatedMember(singletonAnnotatedTypeElement, mapTypeElementToConstructorInjectionTarget);
     }
@@ -209,7 +236,7 @@ public class FactoryProcessor extends ToothpickProcessor {
     targetClassMap.put(enclosingElement, createConstructorInjectionTarget(constructorElement));
   }
 
-  private boolean isValidInjectAnnotatedConstructor(Element element) {
+  private boolean isValidInjectAnnotatedConstructor(ExecutableElement element) {
     TypeElement enclosingElement = (TypeElement) element.getEnclosingElement();
 
     // Verify modifiers.
@@ -221,13 +248,19 @@ public class FactoryProcessor extends ToothpickProcessor {
 
     // Verify parentScope modifiers.
     Set<Modifier> parentModifiers = enclosingElement.getModifiers();
-    if (!parentModifiers.contains(PUBLIC)) {
-      error(element, "Class %s is private. @Inject constructors are not allowed in non public classes.", enclosingElement.getQualifiedName());
+    if (parentModifiers.contains(PRIVATE)) {
+      error(element, "Class %s is private. @Inject constructors are not allowed in private classes.", enclosingElement.getQualifiedName());
       return false;
     }
 
     if (isNonStaticInnerClass(enclosingElement)) {
       return false;
+    }
+
+    for (VariableElement paramElement : element.getParameters()) {
+      if (!isValidInjectedType(paramElement)) {
+        return false;
+      }
     }
 
     return true;
@@ -236,9 +269,10 @@ public class FactoryProcessor extends ToothpickProcessor {
   private ConstructorInjectionTarget createConstructorInjectionTarget(ExecutableElement constructorElement) {
     TypeElement enclosingElement = (TypeElement) constructorElement.getEnclosingElement();
     final String scopeName = getScopeName(enclosingElement);
-    final boolean hasScopeInstancesAnnotation = enclosingElement.getAnnotation(ScopeInstances.class) != null;
+    final boolean hasScopeInstancesAnnotation = enclosingElement //
+        .getAnnotation(ProvidesSingletonInScope.class) != null;
     if (hasScopeInstancesAnnotation && scopeName == null) {
-      error(enclosingElement, "The type %s uses @ScopeInstances but doesn't have a scope annotation.",
+      error(enclosingElement, "The type %s uses @ProvidesSingletonInScope but doesn't have a scope annotation.",
           enclosingElement.getQualifiedName().toString());
     }
     TypeElement superClassWithInjectedMembers = getMostDirectSuperClassWithInjectedMembers(enclosingElement, false);
@@ -246,15 +280,17 @@ public class FactoryProcessor extends ToothpickProcessor {
     ConstructorInjectionTarget constructorInjectionTarget =
         new ConstructorInjectionTarget(enclosingElement, scopeName, hasScopeInstancesAnnotation, superClassWithInjectedMembers);
     constructorInjectionTarget.parameters.addAll(getParamInjectionTargetList(constructorElement));
+    constructorInjectionTarget.throwsThrowable = !constructorElement.getThrownTypes().isEmpty();
 
     return constructorInjectionTarget;
   }
 
   private ConstructorInjectionTarget createConstructorInjectionTarget(TypeElement typeElement) {
     final String scopeName = getScopeName(typeElement);
-    final boolean hasScopeInstancesAnnotation = typeElement.getAnnotation(ScopeInstances.class) != null;
+    final boolean hasScopeInstancesAnnotation = typeElement.getAnnotation(ProvidesSingletonInScope.class) != null;
     if (hasScopeInstancesAnnotation && scopeName == null) {
-      error(typeElement, "The type %s uses @ScopeInstances but doesn't have a scope annotation.", typeElement.getQualifiedName().toString());
+      error(typeElement, "The type %s uses @ProvidesSingletonInScope but doesn't have a scope annotation.",
+          typeElement.getQualifiedName().toString());
     }
     TypeElement superClassWithInjectedMembers = getMostDirectSuperClassWithInjectedMembers(typeElement, false);
 
@@ -270,12 +306,22 @@ public class FactoryProcessor extends ToothpickProcessor {
       }
     }
 
+    final String cannotCreateAFactoryMessage = " Toothpick can't create a factory for it." //
+        + " If this class is itself a DI entry point (i.e. you call TP.inject(this) at some point), " //
+        + " then you can remove this warning by adding @SuppressWarnings(\"Injectable\") to the class." //
+        + " A typical example is a class using injection to assign its fields, that calls TP.inject(this)," //
+        + " but it needs a parameter for its constructor and this parameter is not injectable.";
+
     //search for default constructor
     for (ExecutableElement constructorElement : constructorElements) {
       if (constructorElement.getParameters().isEmpty()) {
         if (constructorElement.getModifiers().contains(Modifier.PRIVATE)) {
-          warning(constructorElement, "The class %s has a private default constructor, Toothpick can't create a factory for it.",
-              typeElement.getQualifiedName().toString());
+          if (!isInjectableWarningSuppressed(typeElement)) {
+              String message = format("The class %s has a private default constructor. "
+                      + cannotCreateAFactoryMessage, //
+                  typeElement.getQualifiedName().toString());
+            crashOrWarnWhenNoFactoryCanBeCreated(constructorElement, message);
+          }
           return null;
         }
 
@@ -285,9 +331,22 @@ public class FactoryProcessor extends ToothpickProcessor {
       }
     }
 
-    warning(typeElement, "The class %s has injected fields but has no injected constructor, and no public default constructor."
-            + " Toothpick can't create a factory for it.", typeElement.getQualifiedName().toString());
+    if (!isInjectableWarningSuppressed(typeElement)) {
+      String message = format("The class %s has injected members or a scope annotation "
+              + "but has no @Inject annotated (non-private) constructor " //
+              + " nor a non-private default constructor. " + cannotCreateAFactoryMessage, //
+          typeElement.getQualifiedName().toString());
+      crashOrWarnWhenNoFactoryCanBeCreated(typeElement, message);
+    }
     return null;
+  }
+
+  private void crashOrWarnWhenNoFactoryCanBeCreated(Element element, String message) {
+    if (crashWhenNoFactoryCanBeCreated != null && crashWhenNoFactoryCanBeCreated) {
+      error(element, message);
+    } else {
+      warning(element, message);
+    }
   }
 
   /**
@@ -302,6 +361,7 @@ public class FactoryProcessor extends ToothpickProcessor {
     for (AnnotationMirror annotationMirror : typeElement.getAnnotationMirrors()) {
       TypeElement annotationTypeElement = (TypeElement) annotationMirror.getAnnotationType().asElement();
       if (annotationTypeElement.getAnnotation(Scope.class) != null) {
+        checkScopeAnnotationValidity(annotationTypeElement);
         if (scopeName != null) {
           error(typeElement, "Only one @Scope qualified annotation is allowed : %s", scopeName);
         }
@@ -310,6 +370,29 @@ public class FactoryProcessor extends ToothpickProcessor {
     }
 
     return scopeName;
+  }
+
+  private void checkScopeAnnotationValidity(TypeElement annotation) {
+    if (annotation.getAnnotation(Scope.class) == null) {
+      error(annotation, "Scope Annotation %s does not contain Scope annotation.", annotation.getQualifiedName());
+      return;
+    }
+
+    Retention retention = annotation.getAnnotation(Retention.class);
+    if (retention == null || retention.value() != RetentionPolicy.RUNTIME) {
+      error(annotation, "Scope Annotation %s does not have RUNTIME retention policy.", annotation.getQualifiedName());
+    }
+  }
+
+  /**
+   * Checks if the injectable warning is suppressed for the TypeElement,
+   * through the usage of @SuppressWarning("Injectable").
+   *
+   * @param typeElement the element to check if the warning is suppressed.
+   * @return true is the injectable warning is suppressed, false otherwise.
+   */
+  private boolean isInjectableWarningSuppressed(TypeElement typeElement) {
+    return hasWarningSuppressed(typeElement, SUPPRESS_WARNING_ANNOTATION_INJECTABLE_VALUE);
   }
 
   private boolean canTypeHaveAFactory(TypeElement typeElement) {
@@ -326,5 +409,14 @@ public class FactoryProcessor extends ToothpickProcessor {
   //used for testing only
   void setToothpickRegistryChildrenPackageNameList(List<String> toothpickRegistryChildrenPackageNameList) {
     this.toothpickRegistryChildrenPackageNameList = toothpickRegistryChildrenPackageNameList;
+  }
+
+  //used for testing only
+  void setToothpickExcludeFilters(String toothpickExcludeFilters) {
+    this.toothpickExcludeFilters = toothpickExcludeFilters;
+  }
+
+  void setCrashWhenNoFactoryCanBeCreated(boolean crashWhenNoFactoryCanBeCreated) {
+    this.crashWhenNoFactoryCanBeCreated = crashWhenNoFactoryCanBeCreated;
   }
 }

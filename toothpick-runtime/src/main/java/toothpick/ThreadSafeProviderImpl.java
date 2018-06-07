@@ -1,5 +1,6 @@
 package toothpick;
 
+import java.lang.ref.WeakReference;
 import javax.inject.Provider;
 
 /**
@@ -9,13 +10,17 @@ import javax.inject.Provider;
  */
 public class ThreadSafeProviderImpl<T> implements Provider<T>, Lazy<T> {
   private volatile T instance;
-  private Scope scope;
-  private InternalProviderImpl<? extends T> providerInstance;
+  private WeakReference<Scope> scope;
+  private String scopeName;
+  private Class<T> clazz;
+  private String name;
   private boolean isLazy;
 
-  public ThreadSafeProviderImpl(Scope scope, InternalProviderImpl<? extends T> providerInstance, boolean isLazy) {
-    this.scope = scope;
-    this.providerInstance = providerInstance;
+  public ThreadSafeProviderImpl(Scope scope, Class<T> clazz, String name, boolean isLazy) {
+    this.scope = new WeakReference<>(scope);
+    this.scopeName = scope.getName().toString();
+    this.clazz = clazz;
+    this.name = name;
     this.isLazy = isLazy;
   }
 
@@ -33,13 +38,23 @@ public class ThreadSafeProviderImpl<T> implements Provider<T>, Lazy<T> {
       if (isLazy) {
         //DCL
         if (instance == null) {
-          instance = providerInstance.get(scope);
-          //gc
-          providerInstance = null;
+          instance = getScope().getInstance(clazz, name);
+          scope.clear();
         }
         return instance;
       }
-      return providerInstance.get(scope);
+      return getScope().getInstance(clazz, name);
     }
+  }
+
+  private Scope getScope() {
+    final Scope scope = this.scope.get();
+    if (scope == null) {
+      throw new IllegalStateException(String.format("The instance provided by the %s "
+              + "cannot be created when the associated scope: %s has been closed",
+          isLazy ? "lazy" : "provider",
+          scopeName));
+    }
+    return scope;
   }
 }

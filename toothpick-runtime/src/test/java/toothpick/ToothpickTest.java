@@ -2,15 +2,20 @@ package toothpick;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+
 import org.junit.After;
 import org.junit.Test;
+import toothpick.configuration.Configuration;
+import toothpick.configuration.MultipleRootException;
 
+import static org.easymock.EasyMock.createMock;
+import static org.easymock.EasyMock.replay;
+import static org.easymock.EasyMock.verify;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.sameInstance;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
 
 public class ToothpickTest extends ToothpickBaseTest {
 
@@ -41,6 +46,7 @@ public class ToothpickTest extends ToothpickBaseTest {
   @Test
   public void createScope_shouldReturnAnScopeWithAParent_whenThisScopeByThisKeyWasCreatedWithAParent() throws Exception {
     //GIVEN
+    Toothpick.setConfiguration(Configuration.forProduction());
     ScopeNode scopeParent = (ScopeNode) Toothpick.openScope("foo");
 
     //WHEN
@@ -52,6 +58,17 @@ public class ToothpickTest extends ToothpickBaseTest {
     assertThat(scope.getParentScope(), sameInstance(scopeParent));
   }
 
+  @Test
+  public void createScope_shouldMarkThisScopeAsOpen() throws Exception {
+    //GIVEN
+
+    //WHEN
+    ScopeImpl scope = (ScopeImpl) Toothpick.openScope("foo");
+
+    //THEN
+    assertThat(scope.isOpen, is(true));
+  }
+
   @Test(expected = IllegalArgumentException.class)
   public void openScopes_shouldFail_whenScopeNamesAreNull() throws Exception {
     //GIVEN
@@ -60,12 +77,12 @@ public class ToothpickTest extends ToothpickBaseTest {
     Toothpick.openScopes((Object[]) null);
 
     //THEN
-    fail("Shoudl ahve thrown an exception");
   }
 
   @Test
   public void reset_shouldClear_WhenSomeScopesWereCreated() throws Exception {
     //GIVEN
+    Toothpick.setConfiguration(Configuration.forProduction());
     Scope scope0 = Toothpick.openScope("foo");
     Scope scope1 = Toothpick.openScope("bar");
 
@@ -82,6 +99,7 @@ public class ToothpickTest extends ToothpickBaseTest {
   @Test
   public void destroyScope_shouldClearThisScope_WhenThisScopesWasCreated() throws Exception {
     //GIVEN
+    Toothpick.setConfiguration(Configuration.forProduction());
     Scope scope = Toothpick.openScope("foo");
 
     //WHEN
@@ -90,6 +108,43 @@ public class ToothpickTest extends ToothpickBaseTest {
 
     //THEN
     assertThat(scopeAfterReset, not(sameInstance(scope)));
+  }
+
+  @Test
+  public void closeScope_shouldMarkThisScopeAsClosed() throws Exception {
+    //GIVEN
+    ScopeImpl scope = (ScopeImpl) Toothpick.openScope("foo");
+
+    //WHEN
+    Toothpick.closeScope("foo");
+
+    //THEN
+    assertThat(scope.isOpen, is(false));
+  }
+
+  @Test(expected = MultipleRootException.class)
+  public void openingAClosedChildScope_shouldThrowAnException_whenConfigurationPreventsMultipleRootScopes() throws Exception {
+    //GIVEN
+    Toothpick.setConfiguration(Configuration.forDevelopment().preventMultipleRootScopes());
+    Toothpick.openScopes("foo", "bar");
+    Toothpick.closeScope("bar");
+
+    //WHEN
+    Toothpick.openScope("bar");
+
+    //THEN
+  }
+
+  @Test(expected = MultipleRootException.class)
+  public void opening2rootScope_shouldThrowAnException_whenConfigurationPreventsMultipleRootScopes() throws Exception {
+    //GIVEN
+    Toothpick.setConfiguration(Configuration.forDevelopment().preventMultipleRootScopes());
+    Toothpick.openScope("foo");
+
+    //WHEN
+    Toothpick.openScope("bar");
+
+    //THEN
   }
 
   @Test
@@ -107,6 +162,7 @@ public class ToothpickTest extends ToothpickBaseTest {
   @Test
   public void getOrCreateScope_shouldReturnANewScopeScope_WhenOneWasNotCreatedWithSameKey() throws Exception {
     //GIVEN
+    Toothpick.setConfiguration(Configuration.forProduction());
     ScopeNode scopeParent = (ScopeNode) Toothpick.openScope("bar");
 
     //WHEN
@@ -164,7 +220,20 @@ public class ToothpickTest extends ToothpickBaseTest {
     constructor.newInstance();
 
     //THEN
-    fail("default constructor should not be invokable even via reflection");
+  }
+
+  @Test
+  public void reset_shouldCallResetForProvidedScope() throws Exception {
+    // GIVEN
+    ScopeNode mockScope = createMock(ScopeNode.class);
+    mockScope.reset();
+    replay(mockScope);
+
+    // WHEN
+    Toothpick.reset(mockScope);
+
+    // THEN
+    verify(mockScope);
   }
 
   @After

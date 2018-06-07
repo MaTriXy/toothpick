@@ -1,6 +1,11 @@
 package toothpick;
 
+import toothpick.config.Module;
+
+import javax.inject.Provider;
+import javax.inject.Singleton;
 import java.lang.annotation.Annotation;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -8,9 +13,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
-import javax.inject.Provider;
-import javax.inject.Singleton;
-import toothpick.config.Module;
 
 import static java.lang.String.format;
 
@@ -78,6 +80,7 @@ public abstract class ScopeNode implements Scope {
   //as setting the parent is called only once when creating a node
   protected final List<ScopeNode> parentScopes = new CopyOnWriteArrayList<>();
   protected Object name;
+  protected boolean isOpen = true;
   //same here for lock free access
   protected final Set<Class<? extends Annotation>> scopeAnnotationClasses = new CopyOnWriteArraySet<>();
 
@@ -87,11 +90,7 @@ public abstract class ScopeNode implements Scope {
     }
 
     this.name = name;
-    if (name.getClass() == Class.class //
-        && Annotation.class.isAssignableFrom((Class) name) //
-        && isScopeAnnotationClass((Class<? extends Annotation>) name)) {
-      bindScopeAnnotation((Class<? extends Annotation>) name);
-    }
+    bindScopeAnnotationIfNameIsScopeAnnotation();
   }
 
   @Override
@@ -192,11 +191,20 @@ public abstract class ScopeNode implements Scope {
   @Override
   public boolean isBoundToScopeAnnotation(Class<? extends Annotation> scopeAnnotationClass) {
     if (scopeAnnotationClass == Singleton.class) {
-      throw new IllegalArgumentException(format("The annotation @Singleton is already bound "
-              + "to the root scope of any scope. It can't be tested dynamically."));
+      return parentScopes.isEmpty();
     }
 
     return scopeAnnotationClasses.contains(scopeAnnotationClass);
+  }
+
+  /**
+   * Resets the state of the scope.
+   * Useful for automation testing when we want to reset the scope used to install test modules.
+   */
+  protected void reset() {
+    scopeAnnotationClasses.clear();
+    isOpen = true;
+    bindScopeAnnotationIfNameIsScopeAnnotation();
   }
 
   @SuppressWarnings({ "unused", "For the sake of completeness of the API." })
@@ -206,7 +214,7 @@ public abstract class ScopeNode implements Scope {
 
   /**
    * Adds a child {@link ScopeNode} to a {@link ScopeNode}.
-   * Children sccopes have access to all bindings of their parents, as well as their scoped instances, and can override them.
+   * Children scopes have access to all bindings of their parents, as well as their scoped instances, and can override them.
    * In a lock free way, this method returns the child scope : either {@code child} or a child scope that was already added.
    *
    * @param child the new child scope.
@@ -260,6 +268,30 @@ public abstract class ScopeNode implements Scope {
     childrenScopes.remove(child.getName());
     //make the ex-child a new root.
     child.parentScopes.clear();
+  }
+
+  void close() {
+    isOpen = false;
+  }
+
+  List<Object> getParentScopesNames() {
+    List<Object> parentScopesNames = new ArrayList<>();
+    for (ScopeNode parentScope : parentScopes) {
+      parentScopesNames.add(parentScope.getName());
+    }
+    return parentScopesNames;
+  }
+
+  /**
+   * Bind Scope Annotation if the Scope name is a Scope Annotation.
+   * For example: Toothpick.openScope(MyScopeAnnotation.class)
+   */
+  private void bindScopeAnnotationIfNameIsScopeAnnotation() {
+    if (name.getClass() == Class.class //
+            && Annotation.class.isAssignableFrom((Class) name) //
+            && isScopeAnnotationClass((Class<? extends Annotation>) name)) {
+      bindScopeAnnotation((Class<? extends Annotation>) name);
+    }
   }
 
   private void checkIsAnnotationScope(Class<? extends Annotation> scopeAnnotationClass) {

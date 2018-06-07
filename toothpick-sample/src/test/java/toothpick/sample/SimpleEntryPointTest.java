@@ -56,8 +56,8 @@ public class SimpleEntryPointTest {
   }
 
   private class TestModule extends Module {
-    public TestModule() {
-      bind(Computer.class).to(mockComputer);
+    TestModule() {
+      bind(Computer.class).toInstance(mockComputer);
     }
   }
 }
