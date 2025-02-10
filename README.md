@@ -16,13 +16,18 @@
       <img src="http://img.shields.io/:license-apache-blue.svg"/></a>
       <br/>
       <a alt="Maven Central" href="http://search.maven.org/#search|gav|1|g:'com.github.stephanenicolas.toothpick'%20AND%20a:'toothpick'">
-      <img src="https://img.shields.io/maven-central/v/com.github.stephanenicolas.toothpick/toothpick.svg?maxAge=2592000"/></a>
+      <img src="https://img.shields.io/maven-central/v/com.github.stephanenicolas.toothpick/toothpick.svg?style=flat"/></a>
       <br/>
+    </td>
+    <td  style="border:0px">
       <a alt="Android Dev Weekly" href="http://androidweekly.net/issues/issue-207">
       <img src="https://img.shields.io/badge/Android%20Weekly-%23207-brightgreen.svg"/></a>
       <br/>
       <a alt="Android Arsenal" href="http://android-arsenal.com/details/1/3646">
       <img src="https://img.shields.io/badge/Android%20Arsenal-Toothpick-brightgreen.svg?style=flat"/></a>
+      <br/>
+      <a alt="Incap: isolating" href="https://github.com/gradle/gradle/blob/master/subprojects/docs/src/docs/userguide/java_plugin.adoc#isolating-annotation-processors">
+      <img src="https://img.shields.io/badge/incap-isolating-4AC31D?style=flat"/></a>
     </td>
     <td>
       <a href="https://github.com/stephanenicolas/toothpick/wiki">
@@ -43,64 +48,83 @@ It is a full-featured, runtime based, but reflection free, implementation of [JS
 ```
 //a typical Toothpick scope tree during the execution of an Android app.
 
-       @ApplicationSingleton 
-         /              |    \  
-        /               |     \
-       /                |      \
-   @PresenterSingleton  |   Service 2
+           @ApplicationScope 
+             /          |    \  
+            /           |     \
+           /            |      \
+   @ViewModelScope      |   Service 2
          /              | 
         /            Service 1  
        /            
+ @Activity1Scope
+      /
+     /
 Activity 1
-    /   \
-   /   Fragment 2
-  /
+   /   \
+  /   Fragment 2
+ /
 Fragment 1
 ```
 
+Scopes offer to compartmentalize memory during the runtime of an app and prevent memory leaks.
+All dependencies created via Toothpick, and available for injections, will be fully garbage collected when this scope is closed.
+To learn more about scopes, read [TP wiki](https://github.com/stephanenicolas/toothpick/wiki/Scopes#what-is-a-scope-).
+
 Toothpick is :
-* pure java (and Android helped is provided: "Smoothie")
+* pure java (Android support is provided: "Smoothie", Kotlin support is provided by "KTP")
 * [fast](https://github.com/stephanenicolas/toothpick/wiki/FAQ#how-does-toothpick-perform-compared-to-dagger-2-), it doesn't use reflection but [annotation processing](https://github.com/stephanenicolas/toothpick/wiki/Factories-and-Member-Injectors)
+* TP supports [incremental annotation processing (isolating)](https://github.com/gradle/gradle/blob/master/subprojects/docs/src/docs/userguide/java_plugin.adoc#isolating-annotation-processors).
 * simple, flexible, extensible & powerful, [robust & tested](https://coveralls.io/github/stephanenicolas/toothpick?branch=master)
 * thread safe
 * [documented](https://github.com/stephanenicolas/toothpick/wiki) & [Open Source](https://raw.githubusercontent.com/stephanenicolas/toothpick/master/LICENSE)
 * [scope safe](https://github.com/stephanenicolas/toothpick/wiki/Scope-Resolution) : it enforces leak free apps
 * [test oriented](https://github.com/stephanenicolas/toothpick/blob/master/toothpick-sample/src/test/java/toothpick/sample/SimpleEntryPointTestWithRules.java) : it makes tests easier
-* it works very well with Android or any other context based framework (such as web containers)
-
-Hey, Android Devs, you can use TP to [create MVP apps so easily](https://github.com/stephanenicolas/toothpick/blob/master/smoothie-sample/src/main/java/com/example/smoothie/RxMVPActivity.java) !
-
+* is a candidate of choice for Android or any other context based framework (such as web containers)
 
 ## Examples
 
-Currently Toothpick has 2 sets of examples : 
-* one [in pure Java](https://github.com/stephanenicolas/toothpick/tree/master/toothpick-sample)
-* one [for Android](https://github.com/stephanenicolas/toothpick/tree/master/smoothie-sample)
+This is the example:
+* https://github.com/stephanenicolas/toothpick/tree/master/toothpick-sample
 
 ## Setup
+
+The latest version of TP is provided by a badge at the top of this page.
+
 For Android : 
 ```groovy
-#android setup using gradle 2.2.3
+#android setup using gradle 5.5.1
 buildscript {
   repositories {
+    google()
     jcenter()
   }
   dependencies {
-    classpath 'com.android.tools.build:gradle:2.2.3'
+    classpath 'com.android.tools.build:gradle:3.4.x'
   }
 }
 
 ...
-
+#for java
 dependencies {
-  compile 'com.github.stephanenicolas.toothpick:toothpick-runtime:1.1.3'
-  // and for android -> compile 'com.github.stephanenicolas.toothpick:smoothie:1.1.3'
-  annotationProcessor 'com.github.stephanenicolas.toothpick:toothpick-compiler:1.1.3'
+  implementation 'com.github.stephanenicolas.toothpick:toothpick-runtime:3.x'
+  // and for android -> implementation 'com.github.stephanenicolas.toothpick:smoothie-androidx:3.x'
+  annotationProcessor 'com.github.stephanenicolas.toothpick:toothpick-compiler:3.x'
 
   //highly recommended
-  testCompile 'com.github.stephanenicolas.toothpick:toothpick-testing:1.1.3'
-  testCompile 'mockito or easymock'
+  testImplementation 'com.github.stephanenicolas.toothpick:toothpick-testing-junit5:3.x'
+  testImplementation 'mockito or easymock'
 }
+
+#for kotlin
+dependencies {
+  implementation 'com.github.stephanenicolas.toothpick:ktp:3.x'
+  kapt 'com.github.stephanenicolas.toothpick:toothpick-compiler:3.x'
+
+  //highly recommended
+  testImplementation 'com.github.stephanenicolas.toothpick:toothpick-testing-junit5:3.x'
+  testImplementation 'mockito or easymock'
+}
+
 ```
 
 For java:
@@ -110,13 +134,13 @@ For java:
     <dependency>
       <groupId>com.github.stephanenicolas.toothpick</groupId>
       <artifactId>toothpick-compiler</artifactId>
-      <version>1.1.3</version>
+      <version>3.x</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>com.github.stephanenicolas.toothpick</groupId>
       <artifactId>toothpick-runtime</artifactId>
-      <version>1.1.3</version>
+      <version>3.x</version>
       <scope>compile</scope>
     </dependency>
     
@@ -124,7 +148,7 @@ For java:
     <dependency> 
       <groupId>com.github.stephanenicolas.toothpick</groupId>
       <artifactId>toothpick-testing</artifactId>
-      <version>1.1.3</version>
+      <version>3.x</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -140,6 +164,8 @@ Ask questions on Stack Over Flow while keeping the GitHub issue board for real i
 
 ## Talks & Articles
 
+* A Dependency Injection Showdown - [Pro Android Dev article](https://proandroiddev.com/a-dependency-injection-showdown-213339c76515)
+* Toothpick 3 — a hidden gem in the DI world - [Medium article](https://medium.com/swlh/toothpick-3-a-hidden-gem-194ae6ee8671)
 * How I learned to love unit testing with Toothpick - [Groupon's medium blog article](https://medium.com/groupon-eng/how-i-learned-to-love-unit-testing-with-toothpick-13ad305b35d)
 * Droidcon, Boston 2017 - [Slides](https://speakerdeck.com/dlemures/toothpick-a-fresh-approach-to-di-including-unit-testing) & [Video](https://news.realm.io/news/droidcon-boston-daniel-molinero-toothpick-dependency-injection-android/)
 * Migrating off RoboGuice 3 (to Toothpick) - [Part 1](https://medium.com/@markchristopherng/migrating-off-roboguice-3-part-1-cee0875f6620) & [Part 2](https://medium.com/@markchristopherng/migrating-off-roboguice-3-part-2-c06644d2d1ef)
@@ -153,6 +179,9 @@ Ask questions on Stack Over Flow while keeping the GitHub issue board for real i
 * Droidcon, Berlin 2016 - [Slides](https://speakerdeck.com/dlemures/toothpick-and-dependency-injection) - [Sketch notes](https://twitter.com/TeresaHolfeld/status/743026908552663041)
 * Android Leaks 2016 - [podcast in French](http://androidleakspodcast.com/2016/09/25/episode-4-de-la-dague-au-cure-dent-en-passant-par-un-petit-jus/)
 * DevFest Belgium 2016 - [video in French](https://www.youtube.com/watch?v=ytBmu5ciPCQ)
+* DevFest Siberia 2017 - [video in Russian](https://www.youtube.com/watch?v=EOFrA-MHbjU)
+* DevFest North 2017 - [video in Russian](https://www.youtube.com/watch?v=t55nFVurCHw)
+* [Toothpick: a simple DI for Android development (Russian)](https://medium.com/@alaershov/toothpick-di-android-1-intro-ru-151015616f0?source=friends_link&sk=ccfdda35cd968f1cd9986ab4a8cf0016)
 
 # Wanna know more ?
 
@@ -165,11 +194,18 @@ Visit [Toothpick's wiki](https://github.com/stephanenicolas/toothpick/wiki) !
 * [Dagger 2](https://github.com/google/dagger)
 * [transfuse](http://androidtransfuse.org/)
 * [lightsaber](https://github.com/MichaelRocks/lightsaber)
-* [tiger](https://github.com/google/tiger)
+* ~~[tiger](https://github.com/google/tiger)~~ (deprecated)
 * [feather](https://github.com/zsoltherpai/feather)
 * [proton](https://github.com/hnakagawa/proton)
+* [koin](https://github.com/InsertKoinIO/koin)
+* [Kodein-DI](https://github.com/Kodein-Framework/Kodein-DI)
 
-# Libs using TP
+# Libs / Apps using TP 2
 
 * [Okuki](https://github.com/wongcain/okuki) is a simple, hierarchical navigation bus and back stack for Android, with optional Rx bindings, and Toothpick DI integration.
 * [KotlinWeather](https://github.com/ekamp/KotlinWeather) is a simple example of using ToothPick with Kotlin and gradle integration using kapt.
+
+# Credits
+
+TP 1 & 3 have been developped by Stephane Nicolas and Daniel Molinero Reguera.
+Most of the effort on version 2 has been actively supported by Groupon. Thanks for this awesome OSS commitment !

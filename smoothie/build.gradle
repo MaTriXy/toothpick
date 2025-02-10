@@ -1,31 +1,12 @@
-buildscript {
-  repositories {
-    jcenter()
-    google()
-  }
-  dependencies {
-    classpath ('com.android.tools.build:gradle:3.0.0-beta7')
-  }
-
-}
-
 apply plugin: 'com.android.library'
 
-dependencies {
-  compileOnly project(':toothpick')
-  compileOnly deps.inject
-  compileOnly deps.supportv4
-
-  testImplementation deps.supportv4
-  testImplementation project(':toothpick-testing')
-  testImplementation deps.junit
-  testImplementation deps.easymock
-  testImplementation deps.robolectric
+repositories {
+  google()
 }
 
+
 android {
-  compileSdkVersion 26
-  buildToolsVersion '26.0.2'
+  compileSdkVersion 28
 
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_1_7
@@ -35,11 +16,7 @@ android {
   defaultConfig {
     minSdkVersion 15
 
-    javaCompileOptions {
-      annotationProcessorOptions {
-        includeCompileClasspath = true
-      }
-    }
+    consumerProguardFiles 'proguard-rules.txt'
   }
 
   lintOptions {
@@ -48,6 +25,17 @@ android {
     // We run a full lint analysis as build part in CI, so skip vital checks for assemble tasks.
     checkReleaseBuilds false
   }
+}
+
+dependencies {
+  api project(':toothpick-runtime')
+  compileOnly deps.inject
+
+  testImplementation project(':toothpick-testing')
+  testImplementation deps.junit4
+  testImplementation deps.mockito
+  testImplementation deps.robolectric
+  testImplementation deps.androidx_test_core
 }
 
 apply from: rootProject.file('gradle/gradle-mvn-push.gradle')

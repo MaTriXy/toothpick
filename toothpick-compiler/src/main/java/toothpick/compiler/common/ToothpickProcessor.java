@@ -1,4 +1,27 @@
+/*
+ * Copyright 2019 Stephane Nicolas
+ * Copyright 2019 Daniel Molinero Reguera
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package toothpick.compiler.common;
+
+import static java.lang.String.format;
+import static javax.lang.model.element.Modifier.PRIVATE;
+import static javax.lang.model.element.Modifier.PROTECTED;
+import static javax.lang.model.element.Modifier.PUBLIC;
+import static javax.tools.Diagnostic.Kind.ERROR;
+import static javax.tools.Diagnostic.Kind.WARNING;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -7,7 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -27,87 +49,67 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.JavaFileObject;
-
 import toothpick.compiler.common.generators.CodeGenerator;
 import toothpick.compiler.common.generators.targets.ParamInjectionTarget;
 import toothpick.compiler.memberinjector.targets.FieldInjectionTarget;
 
-import static java.lang.String.format;
-import static javax.lang.model.element.Modifier.PRIVATE;
-import static javax.lang.model.element.Modifier.PROTECTED;
-import static javax.lang.model.element.Modifier.PUBLIC;
-import static javax.tools.Diagnostic.Kind.ERROR;
-import static javax.tools.Diagnostic.Kind.WARNING;
-
-/**
- * Base processor class.
- */
+/** Base processor class. */
 public abstract class ToothpickProcessor extends AbstractProcessor {
 
-  /** The name of the {@link javax.inject.Inject} annotation class that triggers {@code ToothpickProcessor}s. */
-  public static final String INJECT_ANNOTATION_CLASS_NAME = "javax.inject.Inject";
-  public static final String SINGLETON_ANNOTATION_CLASS_NAME = "javax.inject.Singleton";
-  public static final String PRODUCES_SINGLETON_ANNOTATION_CLASS_NAME = "toothpick.ProvidesSingletonInScope";
-
   /**
-   * The name of the annotation processor option to declare in which package a registry should be generated.
-   * If this parameter is not passed, no registry is generated.
+   * The name of the {@link javax.inject.Inject} annotation class that triggers {@code
+   * ToothpickProcessor}s.
    */
-  public static final String PARAMETER_REGISTRY_PACKAGE_NAME = "toothpick_registry_package_name";
+  public static final String INJECT_ANNOTATION_CLASS_NAME = "javax.inject.Inject";
+
+  public static final String SINGLETON_ANNOTATION_CLASS_NAME = "javax.inject.Singleton";
+  public static final String PRODUCES_SINGLETON_ANNOTATION_CLASS_NAME =
+      "toothpick.ProvidesSingleton";
+  public static final String INJECT_CONSTRUCTOR_ANNOTATION_CLASS_NAME =
+      "toothpick.InjectConstructor";
 
   /**
-   * The name of the annotation processor option to exclude classes from the creation of member scopes & factories.
-   * Exclude filters are java regex, multiple entries are comma separated.
+   * The name of the annotation processor option to exclude classes from the creation of member
+   * scopes & factories. Exclude filters are java regex, multiple entries are comma separated.
    */
   public static final String PARAMETER_EXCLUDES = "toothpick_excludes";
 
   /**
-   * The name of the annotation processor option to let TP know about custom scope annotation classes.
-   * This option is needed only in the case where a custom scope annotation is used on a class, and this
-   * class doesn't use any annotation processed out of the box by TP (i.e. javax.inject.* annotations).
-   * If you use custom scope annotations, it is a good practice to always use this option so that
-   * developers can use the new scope annotation in a very free way without having to consider the annotation
-   * processing internals.
+   * The name of the annotation processor option to let TP know about custom scope annotation
+   * classes. This option is needed only in the case where a custom scope annotation is used on a
+   * class, and this class doesn't use any annotation processed out of the box by TP (i.e.
+   * javax.inject.* annotations). If you use custom scope annotations, it is a good practice to
+   * always use this option so that developers can use the new scope annotation in a very free way
+   * without having to consider the annotation processing internals.
    */
   public static final String PARAMETER_ANNOTATION_TYPES = "toothpick_annotations";
 
   /**
-   * The name annotation processor option to declare in which packages reside the sub-registries used by the generated registry,
-   * if it is created. Multiple entries are comma separated.
-   *
-   * @see #PARAMETER_REGISTRY_PACKAGE_NAME
+   * The name of the annotation processor option to make the TP annotation processor crash when it
+   * can't generate a factory for a class. By default the behavior is not to crash but emit a
+   * warning. Passing the value {@code true} crashes the build instead.
    */
-  public static final String PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES = "toothpick_registry_children_package_names";
+  public static final String PARAMETER_CRASH_WHEN_NO_FACTORY_CAN_BE_CREATED =
+      "toothpick_crash_when_no_factory_can_be_created";
 
   /**
-   * The name of the annotation processor option to make the TP annotation processor crash when it can't generate
-   * a factory for a class. By default the behavior is not to crash but emit a warning. Passing the value {@code true}
-   * crashes the build instead.
+   * The name of the annotation processor option to make the TP annotation processor crash when it
+   * detects an annotated method but with a non package-private visibility. By default the behavior
+   * is not to crash but emit a warning. Passing the value {@code true} crashes the build instead.
    */
-  public static final String PARAMETER_CRASH_WHEN_NO_FACTORY_CAN_BE_CREATED = "toothpick_crash_when_no_factory_can_be_created";
+  public static final String PARAMETER_CRASH_WHEN_INJECTED_METHOD_IS_NOT_PACKAGE =
+      "toothpick_crash_when_injected_method_is_not_package";
 
-  /**
-   * The name of the annotation processor option to make the TP annotation processor crash when it detects
-   * an annotated method but with a non package-private visibility.
-   * By default the behavior is not to crash but emit a warning. Passing the value {@code true}
-   * crashes the build instead.
-   */
-  public static final String PARAMETER_CRASH_WHEN_INJECTED_METHOD_IS_NOT_PACKAGE = "toothpick_crash_when_injected_method_is_not_package";
-
-  /**  Allows to suppress warning when an injected method is not package-private visible. */
+  /** Allows to suppress warning when an injected method is not package-private visible. */
   private static final String SUPPRESS_WARNING_ANNOTATION_VISIBLE_VALUE = "visible";
-
 
   protected Elements elementUtils;
   protected Types typeUtils;
   protected Filer filer;
 
-  protected String toothpickRegistryPackageName;
-  protected List<String> toothpickRegistryChildrenPackageNameList;
   protected String toothpickExcludeFilters = "java.*,android.*";
   protected Boolean toothpickCrashWhenMethodIsNotPackageVisible;
   protected Set<String> supportedAnnotationTypes = new HashSet<>();
-  private boolean hasAlreadyRun;
 
   @Override
   public synchronized void init(ProcessingEnvironment processingEnv) {
@@ -127,20 +129,13 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     supportedAnnotationTypes.add(typeFQN);
   }
 
-  protected void wasRun() {
-    hasAlreadyRun = true;
-  }
-
-  protected boolean hasAlreadyRun() {
-    return hasAlreadyRun;
-  }
-
-  protected boolean writeToFile(CodeGenerator codeGenerator, String fileDescription, Element... originatingElements) {
+  protected boolean writeToFile(
+      CodeGenerator codeGenerator, String fileDescription, Element originatingElement) {
     Writer writer = null;
     boolean success = true;
 
     try {
-      JavaFileObject jfo = filer.createSourceFile(codeGenerator.getFqcn(), originatingElements);
+      JavaFileObject jfo = filer.createSourceFile(codeGenerator.getFqcn(), originatingElement);
       writer = jfo.openWriter();
       writer.write(codeGenerator.brewJava());
     } catch (IOException e) {
@@ -161,42 +156,11 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
   }
 
   /**
-   * Reads both annotation compilers {@link ToothpickProcessor#PARAMETER_REGISTRY_PACKAGE_NAME} and
-   * {@link ToothpickProcessor#PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES} and
-   * {@link ToothpickProcessor#PARAMETER_EXCLUDES}
-   * options from the arguments passed to the processor.
+   * Reads both annotation compilers {@link ToothpickProcessor#PARAMETER_EXCLUDES} option from the
+   * arguments passed to the processor.
    */
   protected void readCommonProcessorOptions() {
-    readOptionRegistryPackageName();
-    readOptionRegistryChildrenPackageNames();
     readOptionExcludes();
-  }
-
-  private void readOptionRegistryPackageName() {
-    Map<String, String> options = processingEnv.getOptions();
-    if (toothpickRegistryPackageName == null) {
-      toothpickRegistryPackageName = options.get(PARAMETER_REGISTRY_PACKAGE_NAME);
-    }
-    if (toothpickRegistryPackageName == null) {
-      warning("No option -A%s to the compiler." + " No registries will be generated.", PARAMETER_REGISTRY_PACKAGE_NAME);
-    }
-  }
-
-  private void readOptionRegistryChildrenPackageNames() {
-    Map<String, String> options = processingEnv.getOptions();
-    if (toothpickRegistryChildrenPackageNameList == null) {
-      toothpickRegistryChildrenPackageNameList = new ArrayList<>();
-      String toothpickRegistryChildrenPackageNames = options.get(PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES);
-      if (toothpickRegistryChildrenPackageNames != null) {
-        String[] registryPackageNames = toothpickRegistryChildrenPackageNames.split(",");
-        for (String registryPackageName : registryPackageNames) {
-          toothpickRegistryChildrenPackageNameList.add(registryPackageName.trim());
-        }
-      }
-    }
-    if (toothpickRegistryChildrenPackageNameList == null) {
-      warning("No option -A%s was passed to the compiler." + " No sub registries will be used.", PARAMETER_REGISTRY_CHILDREN_PACKAGE_NAMES);
-    }
   }
 
   private void readOptionExcludes() {
@@ -247,7 +211,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     // Verify modifiers.
     Set<Modifier> modifiers = variableElement.getModifiers();
     if (modifiers.contains(PRIVATE)) {
-      error(variableElement, "@Inject annotated fields must be non private : %s#%s", enclosingElement.getQualifiedName(),
+      error(
+          variableElement,
+          "@Inject annotated fields must be non private : %s#%s",
+          enclosingElement.getQualifiedName(),
           variableElement.getSimpleName());
       return false;
     }
@@ -255,7 +222,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     // Verify parentScope modifiers.
     Set<Modifier> parentModifiers = enclosingElement.getModifiers();
     if (parentModifiers.contains(PRIVATE)) {
-      error(variableElement, "@Injected fields in class %s. The class must be non private.", enclosingElement.getSimpleName());
+      error(
+          variableElement,
+          "@Injected fields in class %s. The class must be non private.",
+          enclosingElement.getSimpleName());
       return false;
     }
 
@@ -271,7 +241,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     // Verify modifiers.
     Set<Modifier> modifiers = methodElement.getModifiers();
     if (modifiers.contains(PRIVATE)) {
-      error(methodElement, "@Inject annotated methods must not be private : %s#%s", enclosingElement.getQualifiedName(),
+      error(
+          methodElement,
+          "@Inject annotated methods must not be private : %s#%s",
+          enclosingElement.getQualifiedName(),
           methodElement.getSimpleName());
       return false;
     }
@@ -279,7 +252,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     // Verify parentScope modifiers.
     Set<Modifier> parentModifiers = enclosingElement.getModifiers();
     if (parentModifiers.contains(PRIVATE)) {
-      error(methodElement, "@Injected fields in class %s. The class must be non private.", enclosingElement.getSimpleName());
+      error(
+          methodElement,
+          "@Injected fields in class %s. The class must be non private.",
+          enclosingElement.getSimpleName());
       return false;
     }
 
@@ -291,7 +267,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
 
     if (modifiers.contains(PUBLIC) || modifiers.contains(PROTECTED)) {
       if (!hasWarningSuppressed(methodElement, SUPPRESS_WARNING_ANNOTATION_VISIBLE_VALUE)) {
-        crashOrWarnWhenMethodIsNotPackageVisible(methodElement, format("@Inject annotated methods should have package visibility: %s#%s", //
+        crashOrWarnWhenMethodIsNotPackageVisible(
+            methodElement,
+            format(
+                "@Inject annotated methods should have package visibility: %s#%s", //
                 enclosingElement.getQualifiedName(), methodElement.getSimpleName()));
       }
     }
@@ -310,14 +289,15 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
 
   private boolean isValidInjectedElementKind(VariableElement injectedTypeElement) {
     Element typeElement = typeUtils.asElement(injectedTypeElement.asType());
-    //typeElement can be null for primitives. https://github.com/stephanenicolas/toothpick/issues/261
+    // typeElement can be null for primitives.
+    // https://github.com/stephanenicolas/toothpick/issues/261
     if (typeElement == null //
         || typeElement.getKind() != ElementKind.CLASS //
-        && typeElement.getKind() != ElementKind.INTERFACE //
-        && typeElement.getKind() != ElementKind.ENUM) {
+            && typeElement.getKind() != ElementKind.INTERFACE //
+            && typeElement.getKind() != ElementKind.ENUM) {
 
-      //find the class containing the element
-      //the element can be a field or a parameter
+      // find the class containing the element
+      // the element can be a field or a parameter
       Element enclosingElement = injectedTypeElement.getEnclosingElement();
       final String typeName;
       if (typeElement != null) {
@@ -326,13 +306,17 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
         typeName = injectedTypeElement.asType().toString();
       }
       if (enclosingElement instanceof TypeElement) {
-        error(injectedTypeElement, "Field %s#%s is of type %s which is not supported by Toothpick.",
+        error(
+            injectedTypeElement,
+            "Field %s#%s is of type %s which is not supported by Toothpick.",
             ((TypeElement) enclosingElement).getQualifiedName(),
-            injectedTypeElement.getSimpleName(), typeName);
+            injectedTypeElement.getSimpleName(),
+            typeName);
       } else {
         Element methodOrConstructorElement = enclosingElement;
         enclosingElement = enclosingElement.getEnclosingElement();
-        error(injectedTypeElement,
+        error(
+            injectedTypeElement,
             "Parameter %s in method/constructor %s#%s is of type %s which is not supported by Toothpick.",
             injectedTypeElement.getSimpleName(), //
             ((TypeElement) enclosingElement).getQualifiedName(), //
@@ -351,11 +335,20 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     if (declaredType.getTypeArguments().isEmpty()) {
       Element enclosingElement = element.getEnclosingElement();
       if (enclosingElement instanceof TypeElement) {
-        error(element, "Field %s#%s is not a valid %s.", ((TypeElement) enclosingElement).getQualifiedName(), element.getSimpleName(), declaredType);
+        error(
+            element,
+            "Field %s#%s is not a valid %s.",
+            ((TypeElement) enclosingElement).getQualifiedName(),
+            element.getSimpleName(),
+            declaredType);
       } else {
-        error(element, "Parameter %s in method/constructor %s#%s is not a valid %s.", element.getSimpleName(), //
+        error(
+            element,
+            "Parameter %s in method/constructor %s#%s is not a valid %s.",
+            element.getSimpleName(), //
             ((TypeElement) enclosingElement.getEnclosingElement()).getQualifiedName(), //
-            enclosingElement.getSimpleName(), declaredType);
+            enclosingElement.getSimpleName(),
+            declaredType);
       }
       return false;
     }
@@ -365,7 +358,9 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
       int size = ((DeclaredType) firstParameterTypeMirror).getTypeArguments().size();
       if (size != 0) {
         Element enclosingElement = element.getEnclosingElement();
-        error(element, "Lazy/Provider %s is not a valid in %s. Lazy/Provider cannot be used on generic types.",
+        error(
+            element,
+            "Lazy/Provider %s is not a valid in %s. Lazy/Provider cannot be used on generic types.",
             element.getSimpleName(), //
             enclosingElement.getSimpleName());
         return false;
@@ -375,7 +370,8 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     return true;
   }
 
-  protected List<ParamInjectionTarget> getParamInjectionTargetList(ExecutableElement executableElement) {
+  protected List<ParamInjectionTarget> getParamInjectionTargetList(
+      ExecutableElement executableElement) {
     List<ParamInjectionTarget> paramInjectionTargetList = new ArrayList<>();
     for (VariableElement variableElement : executableElement.getParameters()) {
       paramInjectionTargetList.add(createFieldOrParamInjectionTarget(variableElement));
@@ -383,8 +379,21 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     return paramInjectionTargetList;
   }
 
-  protected FieldInjectionTarget createFieldOrParamInjectionTarget(VariableElement variableElement) {
-    final TypeElement memberTypeElement = (TypeElement) typeUtils.asElement(variableElement.asType());
+  protected List<TypeElement> getExceptionTypes(ExecutableElement methodElement) {
+    List<TypeElement> exceptionClassNames = new ArrayList<>();
+    for (TypeMirror thrownTypeMirror : methodElement.getThrownTypes()) {
+      DeclaredType thrownDeclaredType = (DeclaredType) thrownTypeMirror;
+      TypeElement thrownType = (TypeElement) thrownDeclaredType.asElement();
+      exceptionClassNames.add(thrownType);
+    }
+
+    return exceptionClassNames;
+  }
+
+  protected FieldInjectionTarget createFieldOrParamInjectionTarget(
+      VariableElement variableElement) {
+    final TypeElement memberTypeElement =
+        (TypeElement) typeUtils.asElement(variableElement.asType());
     final String memberName = variableElement.getSimpleName().toString();
 
     ParamInjectionTarget.Kind kind = getParamInjectionTargetKind(variableElement);
@@ -392,14 +401,15 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
 
     String name = findQualifierName(variableElement);
 
-    return new FieldInjectionTarget(memberTypeElement, memberName, kind, kindParameterTypeElement, name);
+    return new FieldInjectionTarget(
+        memberTypeElement, memberName, kind, kindParameterTypeElement, name);
   }
 
   /**
-   * Retrieves the type of a field or param. The type can be the type of the parameter
-   * in the java way (e.g. {@code B b}, type is {@code B}); but it can also be the type of
-   * a {@link toothpick.Lazy} or {@link javax.inject.Provider}
-   * (e.g. {@code Lazy&lt;B&gt; b}, type is {@code B} not {@code Lazy}).
+   * Retrieves the type of a field or param. The type can be the type of the parameter in the java
+   * way (e.g. {@code B b}, type is {@code B}); but it can also be the type of a {@link
+   * toothpick.Lazy} or {@link javax.inject.Provider} (e.g. {@code Lazy&lt;B&gt; b}, type is {@code
+   * B} not {@code Lazy}).
    *
    * @param variableElement the field or variable element. NOT his type !
    * @return the type has defined above.
@@ -419,8 +429,10 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     for (String exclude : toothpickExcludeFilters.split(",")) {
       String regEx = exclude.trim();
       if (typeElementName.matches(regEx)) {
-        warning(typeElement,
-            "The class %s was excluded by filters set at the annotation processor level. " + "No factory will be generated by toothpick.",
+        warning(
+            typeElement,
+            "The class %s was excluded by filters set at the annotation processor level. "
+                + "No factory will be generated by toothpick.",
             typeElement.getQualifiedName());
         return true;
       }
@@ -428,9 +440,9 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     return false;
   }
 
-  //overrides are simpler in this case as methods can only be package or protected.
-  //a method with the same name in the type hierarchy would necessarily mean that
-  //the {@code methodElement} would be an override of this method.
+  // overrides are simpler in this case as methods can only be package or protected.
+  // a method with the same name in the type hierarchy would necessarily mean that
+  // the {@code methodElement} would be an override of this method.
   protected boolean isOverride(TypeElement typeElement, ExecutableElement methodElement) {
     TypeElement currentTypeElement = typeElement;
     do {
@@ -455,14 +467,17 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     return false;
   }
 
-  protected TypeElement getMostDirectSuperClassWithInjectedMembers(TypeElement typeElement, boolean onlyParents) {
+  protected TypeElement getMostDirectSuperClassWithInjectedMembers(
+      TypeElement typeElement, boolean onlyParents) {
     TypeElement currentTypeElement = typeElement;
     do {
       if (currentTypeElement != typeElement || !onlyParents) {
         List<? extends Element> enclosedElements = currentTypeElement.getEnclosedElements();
         for (Element enclosedElement : enclosedElements) {
-          if ((enclosedElement.getAnnotation(Inject.class) != null && enclosedElement.getKind() == ElementKind.FIELD)
-              || (enclosedElement.getAnnotation(Inject.class) != null && enclosedElement.getKind() == ElementKind.METHOD)) {
+          if ((enclosedElement.getAnnotation(Inject.class) != null
+                  && enclosedElement.getKind() == ElementKind.FIELD)
+              || (enclosedElement.getAnnotation(Inject.class) != null
+                  && enclosedElement.getKind() == ElementKind.METHOD)) {
             return currentTypeElement;
           }
         }
@@ -478,11 +493,13 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     return null;
   }
 
-
   protected boolean isNonStaticInnerClass(TypeElement typeElement) {
     Element outerClassOrPackage = typeElement.getEnclosingElement();
-    if (outerClassOrPackage.getKind() != ElementKind.PACKAGE && !typeElement.getModifiers().contains(Modifier.STATIC)) {
-      error(typeElement, "Class %s is a non static inner class. @Inject constructors are not allowed in non static inner classes.",
+    if (outerClassOrPackage.getKind() != ElementKind.PACKAGE
+        && !typeElement.getModifiers().contains(Modifier.STATIC)) {
+      error(
+          typeElement,
+          "Class %s is a non static inner class. @Inject constructors are not allowed in non static inner classes.",
           typeElement.getQualifiedName());
       return true;
     }
@@ -490,8 +507,7 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
   }
 
   /**
-   * Checks if {@code element} has a @SuppressWarning("{@code warningSuppressString}")
-   * annotation.
+   * Checks if {@code element} has a @SuppressWarning("{@code warningSuppressString}") annotation.
    *
    * @param element the element to check if the warning is suppressed.
    * @param warningSuppressString the value of the SuppressWarning annotation.
@@ -510,8 +526,8 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
   }
 
   /**
-   * Lookup both {@link javax.inject.Qualifier} and {@link javax.inject.Named}
-   * to provide the name of an injection.
+   * Lookup both {@link javax.inject.Qualifier} and {@link javax.inject.Named} to provide the name
+   * of an injection.
    *
    * @param element the element for which a qualifier is to be found.
    * @return the name of this element or null if it has no qualifier annotations.
@@ -523,7 +539,8 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
     }
 
     for (AnnotationMirror annotationMirror : element.getAnnotationMirrors()) {
-      TypeElement annotationTypeElement = (TypeElement) annotationMirror.getAnnotationType().asElement();
+      TypeElement annotationTypeElement =
+          (TypeElement) annotationMirror.getAnnotationType().asElement();
       if (isSameType(annotationTypeElement, "javax.inject.Named")) {
         checkIfAlreadyHasName(element, name);
         name = getValueOfAnnotation(annotationMirror);
@@ -540,7 +557,9 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
   }
 
   private boolean isSameType(TypeMirror typeMirror, String typeName) {
-    return typeUtils.isSameType(typeUtils.erasure(typeMirror), typeUtils.erasure(elementUtils.getTypeElement(typeName).asType()));
+    return typeUtils.isSameType(
+        typeUtils.erasure(typeMirror),
+        typeUtils.erasure(elementUtils.getTypeElement(typeName).asType()));
   }
 
   private void checkIfAlreadyHasName(VariableElement element, Object name) {
@@ -551,7 +570,8 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
 
   private String getValueOfAnnotation(AnnotationMirror annotationMirror) {
     String result = null;
-    for (Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> annotationParamEntry : annotationMirror.getElementValues().entrySet()) {
+    for (Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> annotationParamEntry :
+        annotationMirror.getElementValues().entrySet()) {
       if (annotationParamEntry.getKey().getSimpleName().contentEquals("value")) {
         result = annotationParamEntry.getValue().toString().replaceAll("\"", "");
       }
@@ -580,8 +600,12 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
         while (!(enclosingElement instanceof TypeElement)) {
           enclosingElement = enclosingElement.getEnclosingElement();
         }
-        error(variableElement, "Field %s#%s is of type %s which is not supported by Toothpick.", ((TypeElement) enclosingElement).getQualifiedName(),
-            variableElement.getSimpleName(), typeElement);
+        error(
+            variableElement,
+            "Field %s#%s is of type %s which is not supported by Toothpick.",
+            ((TypeElement) enclosingElement).getQualifiedName(),
+            variableElement.getSimpleName(),
+            typeElement);
         return null;
       }
       return FieldInjectionTarget.Kind.INSTANCE;
@@ -590,8 +614,8 @@ public abstract class ToothpickProcessor extends AbstractProcessor {
 
   private TypeElement getKindParameter(Element element) {
     TypeMirror elementTypeMirror = element.asType();
-    TypeMirror firstParameterTypeMirror = ((DeclaredType) elementTypeMirror).getTypeArguments().get(0);
+    TypeMirror firstParameterTypeMirror =
+        ((DeclaredType) elementTypeMirror).getTypeArguments().get(0);
     return (TypeElement) typeUtils.asElement(typeUtils.erasure(firstParameterTypeMirror));
   }
-
 }
